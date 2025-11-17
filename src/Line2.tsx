@@ -3,8 +3,9 @@ import Konva from "konva";
 import { useEffect, useRef } from "react";
 import { drawGrid } from "./functions/drawGrid";
 import { snap } from "./functions/snap";
-import resistor from "./assets/dc_v_source(1).svg";
+import resistor from "./assets/resistor(1).svg";
 import { useImage } from "react-konva-utils";
+import { calculateGap } from "./functions/calculateGap";
 
 function App() {
 	const stageRef = useRef<any>(null);
@@ -41,16 +42,25 @@ function App() {
 		const compH = image.height ?? 50;
 		//const gapSize = compW * 0.9; // largura da área "invisível" no centro (configurável)
 
-		const gapSize = 16;
+		// const gapSize = 16; // dc voltage source symbol
+		const gapSize = 48; // resistor symbol
 
 		// substitui a single line por dois segmentos com um gap central
+		const points = [50, 50, 250, 50];
+		const { mid, lineAPoints, lineBPoints } = calculateGap(
+			{ x: points[0], y: points[1] },
+			{ x: points[2], y: points[3] },
+			gapSize
+		);
+
 		const lineA = new Konva.Line({
-			points: [50, 50, 250, 50],
+			points: lineAPoints,
 			stroke: "black",
 			strokeWidth: 4
 		});
+
 		const lineB = new Konva.Line({
-			points: [50, 50, 250, 50],
+			points: lineBPoints,
 			stroke: "black",
 			strokeWidth: 4
 		});
@@ -68,18 +78,19 @@ function App() {
 		layer.add(anchor1);
 
 		const anchor2 = new Konva.Circle({
-			x: lineA.points()[2],
-			y: lineA.points()[3],
+			x: lineB.points()[2],
+			y: lineB.points()[3],
 			radius: 6,
 			fill: "orange",
 			draggable: true
 		});
 		layer.add(anchor2);
 
+
 		const middlePoint = new Konva.Image({
 			image,
-			x: (lineA.points()[0] + lineA.points()[2]) / 2,
-			y: (lineA.points()[1] + lineA.points()[3]) / 2,
+			x: mid.x,
+			y: mid.y,
 			offsetX: compW / 2, // Half the width
 			offsetY: compH / 2, // Half the height
 			draggable: false
@@ -96,21 +107,12 @@ function App() {
 				y: snap({ value: anchor2.y(), gridSize })
 			};
 
-			// midpoint e ângulo
-			const mid = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
-			const dx = p2.x - p1.x;
-			const dy = p2.y - p1.y;
-			const dist = Math.hypot(dx, dy);
-			const angle = Math.atan2(dy, dx);
-			const angleDeg = (angle * 180) / Math.PI;
+			const { mid, dist, angleDeg, gapStart, gapEnd } = calculateGap(p1, p2, gapSize);
 
 			// atualizar imagem central
 			middlePoint.x(mid.x);
 			middlePoint.y(mid.y);
 			middlePoint.rotation(angleDeg);
-
-			// calcular gap (metade)
-			const halfGap = gapSize / 2;
 
 			// se distancia menor que gap, esconder linhas (ou desenhar apenas pequenos segmentos)
 			if (dist <= gapSize + 1e-6) {
@@ -119,20 +121,6 @@ function App() {
 			} else {
 				lineA.visible(true);
 				lineB.visible(true);
-
-				// vetor unitário
-				const ux = dx / dist;
-				const uy = dy / dist;
-
-				// pontos que definem início e fim do gap
-				const gapStart = {
-					x: mid.x - ux * halfGap,
-					y: mid.y - uy * halfGap
-				};
-				const gapEnd = {
-					x: mid.x + ux * halfGap,
-					y: mid.y + uy * halfGap
-				};
 
 				// segmento A: p1 -> gapStart
 				lineA.points([p1.x, p1.y, gapStart.x, gapStart.y]);
