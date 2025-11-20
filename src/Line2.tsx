@@ -1,33 +1,45 @@
 import { Stage, Layer } from "react-konva";
 import Konva from "konva";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { drawGrid } from "./functions/drawGrid";
 import { snap } from "./functions/snap";
 import resistor from "./assets/resistor(1).svg";
+import voltageSource from "./assets/dc_v_source(1).svg";
 import { useImage } from "react-konva-utils";
 import { calculateGap } from "./functions/calculateGap";
 
+type Mode = 'move' | 'resistor' | 'voltage';
+type Component = {
+	lineA: Konva.Line;
+	lineB: Konva.Line;
+	anchor1: Konva.Circle;
+	anchor2: Konva.Circle;
+	middlePoint: Konva.Image;
+	gapSize: number;
+};
+
 function App() {
 	const stageRef = useRef<any>(null);
+	const [mode, setMode] = useState<Mode>('move');
+	const [isDrawing, setIsDrawing] = useState(false);
+	const componentsRef = useRef<Component[]>([]);
+	const currentComponentRef = useRef<Component | null>(null);
 
-	const [image] = useImage(resistor);
-
-	console.log("image: ", image);
-	console.log("image: ", image?.width);
+	const [resistorImage] = useImage(resistor);
+	const [voltageImage] = useImage(voltageSource); // adicione a fonte de tensão
 
 	useEffect(() => {
-		if (!image) return;
+		if (!resistorImage) return;
 
 		const stage = stageRef.current;
-		const layer = stage?.getLayers()[0]; // layer criado pelo JSX
+		const layer = stage?.getLayers()[0];
 
 		if (!stage || !layer) return;
 
 		const gridSize = 25;
 
-		// draw grid (behind other shapes)
 		drawGrid({ stage, layer, gridSize });
-		// redesenhar grid ao redimensionar janela
+
 		const onResize = () => {
 			stage.size({
 				width: window.innerWidth,
@@ -37,127 +49,237 @@ function App() {
 		};
 		window.addEventListener("resize", onResize);
 
-		// ...existing code...
-		const compW = image.width ?? 50; // largura do componente SVG (px) — ajuste se necessário
-		const compH = image.height ?? 50;
-		//const gapSize = compW * 0.9; // largura da área "invisível" no centro (configurável)
-
-		// const gapSize = 16; // dc voltage source symbol
-		const gapSize = 48; // resistor symbol
-
-		// substitui a single line por dois segmentos com um gap central
-		const points = [50, 50, 250, 50];
-		const { mid, lineAPoints, lineBPoints } = calculateGap(
-			{ x: points[0], y: points[1] },
-			{ x: points[2], y: points[3] },
-			gapSize
-		);
-
-		const lineA = new Konva.Line({
-			points: lineAPoints,
-			stroke: "black",
-			strokeWidth: 4
-		});
-
-		const lineB = new Konva.Line({
-			points: lineBPoints,
-			stroke: "black",
-			strokeWidth: 4
-		});
-
-		layer.add(lineA);
-		layer.add(lineB);
-
-		const anchor1 = new Konva.Circle({
-			x: lineA.points()[0],
-			y: lineA.points()[1],
-			radius: 6,
-			fill: "orange",
-			draggable: true
-		});
-		layer.add(anchor1);
-
-		const anchor2 = new Konva.Circle({
-			x: lineB.points()[2],
-			y: lineB.points()[3],
-			radius: 6,
-			fill: "orange",
-			draggable: true
-		});
-		layer.add(anchor2);
-
-
-		const middlePoint = new Konva.Image({
-			image,
-			x: mid.x,
-			y: mid.y,
-			offsetX: compW / 2, // Half the width
-			offsetY: compH / 2, // Half the height
-			draggable: false
-		});
-		layer.add(middlePoint);
-
-		function updateLine() {
-			const p1 = {
-				x: snap({ value: anchor1.x(), gridSize }),
-				y: snap({ value: anchor1.y(), gridSize })
-			};
-			const p2 = {
-				x: snap({ value: anchor2.x(), gridSize }),
-				y: snap({ value: anchor2.y(), gridSize })
-			};
-
-			const { mid, dist, angleDeg, gapStart, gapEnd } = calculateGap(p1, p2, gapSize);
-
-			// atualizar imagem central
-			middlePoint.x(mid.x);
-			middlePoint.y(mid.y);
-			middlePoint.rotation(angleDeg);
-
-			// se distancia menor que gap, esconder linhas (ou desenhar apenas pequenos segmentos)
-			if (dist <= gapSize + 1e-6) {
-				lineA.visible(false);
-				lineB.visible(false);
-			} else {
-				lineA.visible(true);
-				lineB.visible(true);
-
-				// segmento A: p1 -> gapStart
-				lineA.points([p1.x, p1.y, gapStart.x, gapStart.y]);
-				// segmento B: gapEnd -> p2
-				lineB.points([gapEnd.x, gapEnd.y, p2.x, p2.y]);
+		const handleKeyDown = (e: KeyboardEvent) => {
+			if (e.key === "Escape" && isDrawing) {
+				setIsDrawing(false);
+				setMode('move');
 			}
 
-			// garantir âncoras nos pontos snapped
-			anchor1.x(p1.x);
-			anchor1.y(p1.y);
-			anchor2.x(p2.x);
-			anchor2.y(p2.y);
+			if (e.key === "v") setMode('voltage');
+			if (e.key === "r") setMode('resistor');
+		};
+		window.addEventListener("keydown", handleKeyDown);
 
-			layer.batchDraw(); // Redraw the layer to reflect changes
-		}
+		// Handler para começar a desenhar componente
+		const handleMouseDown = (e: Konva.KonvaEventObject<MouseEvent>) => {
+			if (mode === 'move') return;
 
-		anchor1.on("dragmove", updateLine);
-		anchor2.on("dragmove", updateLine);
-		anchor1.on("dragend", updateLine);
-		anchor2.on("dragend", updateLine);
-		// ...existing code...
+			const pos = stage.getPointerPosition();
+			if (!pos) return;
 
-		// cleanup
+			const snappedPos = {
+				x: snap({ value: pos.x, gridSize }),
+				y: snap({ value: pos.y, gridSize })
+			};
+
+			setIsDrawing(true);
+
+			const gapSize = mode === 'resistor' ? 48 : 16;
+			const image = mode === 'resistor' ? resistorImage : voltageImage; // trocar por voltageImage quando disponível
+
+			const { mid, lineAPoints, lineBPoints } = calculateGap(
+				snappedPos,
+				snappedPos,
+				gapSize
+			);
+
+			const lineA = new Konva.Line({
+				points: lineAPoints,
+				stroke: "black",
+				strokeWidth: 4
+			});
+
+			const lineB = new Konva.Line({
+				points: lineBPoints,
+				stroke: "black",
+				strokeWidth: 4
+			});
+
+			const anchor1 = new Konva.Circle({
+				x: snappedPos.x,
+				y: snappedPos.y,
+				radius: 6,
+				fill: "orange",
+				draggable: true
+			});
+
+			const anchor2 = new Konva.Circle({
+				x: snappedPos.x,
+				y: snappedPos.y,
+				radius: 6,
+				fill: "orange",
+				draggable: true
+			});
+
+			const compW = image?.width ?? 50;
+			const compH = image?.height ?? 50;
+
+			const middlePoint = new Konva.Image({
+				image,
+				x: mid.x,
+				y: mid.y,
+				offsetX: compW / 2,
+				offsetY: compH / 2,
+				draggable: false
+			});
+
+			layer.add(lineA);
+			layer.add(lineB);
+			layer.add(anchor1);
+			layer.add(anchor2);
+			layer.add(middlePoint);
+
+			const component: Component = {
+				lineA,
+				lineB,
+				anchor1,
+				anchor2,
+				middlePoint,
+				gapSize
+			};
+
+			currentComponentRef.current = component;
+			layer.batchDraw();
+		};
+
+		// Handler para arrastar enquanto desenha
+		const handleMouseMove = (e: Konva.KonvaEventObject<MouseEvent>) => {
+			if (!isDrawing || !currentComponentRef.current) return;
+
+			const pos = stage.getPointerPosition();
+			if (!pos) return;
+
+			const snappedPos = {
+				x: snap({ value: pos.x, gridSize }),
+				y: snap({ value: pos.y, gridSize })
+			};
+
+			updateComponentLine(currentComponentRef.current, snappedPos, gridSize, layer);
+		};
+
+		// Handler para finalizar desenho
+		const handleMouseUp = (e: Konva.KonvaEventObject<MouseEvent>) => {
+			if (!isDrawing || !currentComponentRef.current) return;
+
+			setIsDrawing(false);
+
+			const component = currentComponentRef.current;
+			componentsRef.current.push(component);
+
+			// Adicionar listeners de drag aos anchors
+			const updateLine = () => updateComponentLine(component, null, gridSize, layer);
+
+			component.anchor1.on("dragmove", updateLine);
+			component.anchor2.on("dragmove", updateLine);
+			component.anchor1.on("dragend", updateLine);
+			component.anchor2.on("dragend", updateLine);
+
+			currentComponentRef.current = null;
+			layer.batchDraw();
+		};
+
+		stage.on('mousedown', handleMouseDown);
+		stage.on('mousemove', handleMouseMove);
+		stage.on('mouseup', handleMouseUp);
+
 		return () => {
 			window.removeEventListener("resize", onResize);
+			stage.off('mousedown', handleMouseDown);
+			stage.off('mousemove', handleMouseMove);
+			stage.off('mouseup', handleMouseUp);
 		};
-	}, [image]);
+	}, [resistorImage, mode, isDrawing]);
+
+	function updateComponentLine(
+		component: Component,
+		newPos: { x: number; y: number } | null,
+		gridSize: number,
+		layer: Konva.Layer
+	) {
+		const p1 = {
+			x: snap({ value: component.anchor1.x(), gridSize }),
+			y: snap({ value: component.anchor1.y(), gridSize })
+		};
+		const p2 = newPos || {
+			x: snap({ value: component.anchor2.x(), gridSize }),
+			y: snap({ value: component.anchor2.y(), gridSize })
+		};
+
+		const { mid, dist, angleDeg, gapStart, gapEnd } = calculateGap(p1, p2, component.gapSize);
+
+		component.middlePoint.x(mid.x);
+		component.middlePoint.y(mid.y);
+		component.middlePoint.rotation(angleDeg);
+
+		if (dist <= component.gapSize + 1e-6) {
+			component.lineA.visible(false);
+			component.lineB.visible(false);
+		} else {
+			component.lineA.visible(true);
+			component.lineB.visible(true);
+			component.lineA.points([p1.x, p1.y, gapStart.x, gapStart.y]);
+			component.lineB.points([gapEnd.x, gapEnd.y, p2.x, p2.y]);
+		}
+
+		component.anchor1.x(p1.x);
+		component.anchor1.y(p1.y);
+		component.anchor2.x(p2.x);
+		component.anchor2.y(p2.y);
+
+		layer.batchDraw();
+	}
 
 	return (
-		<Stage
-			ref={stageRef}
-			width={window.innerWidth}
-			height={window.innerHeight}
-			style={{ border: "1px solid black" }}
-		>
-			<Layer></Layer>
-		</Stage>
+		<div>
+			<div style={{ padding: '10px', background: '#f0f0f0', borderBottom: '1px solid #ccc' }}>
+				<button
+					onClick={() => setMode('move')}
+					style={{
+						marginRight: '10px',
+						padding: '8px 16px',
+						background: mode === 'move' ? '#007bff' : '#fff',
+						color: mode === 'move' ? '#fff' : '#000',
+						border: '1px solid #ccc',
+						cursor: 'pointer'
+					}}
+				>
+					Mover
+				</button>
+				<button
+					onClick={() => setMode('resistor')}
+					style={{
+						marginRight: '10px',
+						padding: '8px 16px',
+						background: mode === 'resistor' ? '#007bff' : '#fff',
+						color: mode === 'resistor' ? '#fff' : '#000',
+						border: '1px solid #ccc',
+						cursor: 'pointer'
+					}}
+				>
+					Resistor
+				</button>
+				<button
+					onClick={() => setMode('voltage')}
+					style={{
+						padding: '8px 16px',
+						background: mode === 'voltage' ? '#007bff' : '#fff',
+						color: mode === 'voltage' ? '#fff' : '#000',
+						border: '1px solid #ccc',
+						cursor: 'pointer'
+					}}
+				>
+					Fonte de Tensão
+				</button>
+			</div>
+			<Stage
+				ref={stageRef}
+				width={window.innerWidth}
+				height={window.innerHeight - 50}
+				style={{ border: "1px solid black", cursor: mode === 'move' ? 'default' : 'crosshair' }}
+			>
+				<Layer></Layer>
+			</Stage>
+		</div>
 	);
 }
 
