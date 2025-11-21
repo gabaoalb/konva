@@ -9,24 +9,24 @@ export function drawGrid({ stage, layer, gridSize = 25 }) {
 		name: "gridGroup",
 		listening: false
 	});
-	const w = stage.width();
-	const h = stage.height();
+	const width = stage.width() * 2;
+	const height = stage.height() * 2;
 
 	// lines horizontais
-	for (let y = 0; y <= h; y += gridSize) {
+	for (let y = -height; y <= height; y += gridSize) {
 		const line = new Konva.Line({
-			points: [0, y, w, y],
+			points: [-width, y, width, y],
 			stroke: "#e6e6e6",
-			strokeWidth: 1
+			strokeWidth: 0.7
 		});
 		gridGroup.add(line);
 	}
 	// linhas verticais
-	for (let x = 0; x <= w; x += gridSize) {
+	for (let x = -width; x <= width; x += gridSize) {
 		const line = new Konva.Line({
-			points: [x, 0, x, h],
+			points: [x, -height, x, height],
 			stroke: "#e6e6e6",
-			strokeWidth: 1
+			strokeWidth: 0.7
 		});
 		gridGroup.add(line);
 	}

@@ -88,8 +88,6 @@ function App() {
 			);
 			const angleDeg = (angle * 180) / Math.PI;
 
-			console.log(angleDeg);
-
 			middlePoint.x(newMiddlePoint.x);
 			middlePoint.y(newMiddlePoint.y);
 			middlePoint.rotation(angleDeg);
